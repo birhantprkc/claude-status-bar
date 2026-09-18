@@ -46,12 +46,13 @@ Or just run `brew upgrade --cask claude-status-bar` (brew), or download the late
 Everything is controlled from the menu:
 
 - **Show timer:** toggle the elapsed `1m 1s` clock.
-- **Thinking words:** rotate a playful verb (`Manifesting…`, `Percolating…`) in place of `Thinking…`, like Claude Code (on by default).
+- **Show text:** show the status label next to the icon (`Manifesting…`, `Percolating…`, `Editing`, `Running command`), or turn it off for an icon-only menu bar (on by default).
 - **Animation style:**
-  - **Claude Spark**, the web/chat "morph" spark
-  - **Claude Code**, the terminal glyph spinner
-  - **Clawd Crab Walking**, a pixel-art Clawd crab that scuttles while Claude works
-- **Icon color:** **Orange** or **System** (adaptive black/white). All three styles follow this setting: in System mode Crab Walking renders as a shaded monochrome silhouette that matches the menu bar.
+  - **Spark**, the web/chat "morph" spark
+  - **Unicode**, the terminal glyph spinner
+  - **Clawd™**, a pixel-art Clawd crab that scuttles while Claude works
+  - **Orbit**, three dots that orbit, merge and breathe
+- **Icon color:** **Orange** or **System** (adaptive black/white). All four styles follow this setting: in System mode Clawd™ renders as a shaded monochrome silhouette that matches the menu bar.
 - **Version and update:** the menu shows your current version and tells you when an update is ready (see [Updating](#updating)).
 
 ### Where it works

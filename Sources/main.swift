@@ -320,6 +320,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     var pollTimer: Timer?
     var animTimer: Timer?
     var frameIdx = 0
+    var markOutro = false
 
     let launchedAt = Date()
     var notNeededSince: Date?
@@ -379,11 +380,11 @@ final class StatusController: NSObject, NSMenuDelegate {
     let frames: [NSImage] = StatusController.loadFrames()
     let spriteFPS: Double = 9 // tune: 8 frames per loop -> ~0.9s/cycle
 
-    enum AnimStyle: String { case web, code, crab }
+    enum AnimStyle: String { case web, code, crab, mark }
     var animStyle: AnimStyle = .web
     var showTimer = false
     var iconSystem = false // false = brand Orange; true = adaptive black/white (template image)
-    var useThinkingWords = true     // rotate a playful verb ("Manifesting…") in place of "Thinking…"
+    var showLabel = true
     var sessionWord: [String: String] = [:] // id -> current thinking word; re-picked on each entry into "thinking"
     var soundThreshold: Double = 0  // 0 = off; else the min turn length (seconds) that chimes on completion
     var turnStart: [String: Double] = [:]  // id -> active turn start, for the completion-sound length gate
@@ -432,11 +433,52 @@ final class StatusController: NSObject, NSMenuDelegate {
     // Template frames: bright pixels (white eyes) become transparent holes so they're
     // visible as negative space against the menu bar in System color mode.
     lazy var crabTemplateFrames: [NSImage] = crabFrames.map { adaptiveCrabFrame($0) }
+
+    var markFPS: Double = 15
+    var markAdvance: Int { max(1, Int((30.0 / max(1, markFPS)).rounded())) }
+    let markOrbitReps = 2
+    let markBreatheReps = 4
+    let markFadeFrames = 4
+    var markDotScale: CGFloat = 1.08
+    var markSparkScale: CGFloat = 0.92
+    func loadMarkConfig() {
+        let cfg = uiConfig()
+        markFPS = cfg["markFPS"] ?? 15
+        markDotScale = CGFloat(cfg["markDotScale"] ?? 1.08)
+        markSparkScale = CGFloat(cfg["markSparkScale"] ?? 0.92)
+    }
+
+    lazy var markFrames: [String: [NSImage]] = {
+        var out: [String: [NSImage]] = [:]
+        for s in workingMarkStrips {
+            guard let data = Data(base64Encoded: s.data), let img = NSImage(data: data),
+                  let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+            out[s.name] = (0..<s.frames).compactMap { i in
+                cg.cropping(to: CGRect(x: 0, y: i * 48, width: 48, height: 48))
+                    .map { NSImage(cgImage: $0, size: NSSize(width: 48, height: 48)) }
+            }
+        }
+        return out
+    }()
+
+    lazy var markSequence: [(strip: String, frame: Int)] = {
+        func n(_ name: String) -> Int { workingMarkStrips.first { $0.name == name }?.frames ?? 0 }
+        var seq: [(strip: String, frame: Int)] = []
+        for i in 0..<n("en110") { seq.append((strip: "en110", frame: i)) }
+        for _ in 0..<markOrbitReps { for i in 0..<n("loop110") { seq.append((strip: "loop110", frame: i)) } }
+        for _ in 0..<markBreatheReps { for i in 0..<n("loop40") { seq.append((strip: "loop40", frame: i)) } }
+        for i in 0..<n("ex40") { seq.append((strip: "ex40", frame: i)) }
+        return seq
+    }()
+    var markLoopStart: Int { workingMarkStrips.first { $0.name == "en110" }?.frames ?? 0 }
+    var markBodyCount: Int { markSequence.count - (workingMarkStrips.first { $0.name == "ex40" }?.frames ?? 0) }
+
     var fps: Double {
         switch animStyle {
         case .web: return spriteFPS
         case .code: return Double(codeGlyphs.count * codeSub) / codeCycle
         case .crab: return crabFPS
+        case .mark: return markFPS
         }
     }
     var frameCount: Int {
@@ -444,17 +486,20 @@ final class StatusController: NSObject, NSMenuDelegate {
         case .web: return max(1, frames.count)
         case .code: return codeGlyphs.count * codeSub
         case .crab: return max(1, crabFrames.count)
+        case .mark: return max(1, markBodyCount)
         }
     }
+    var loopStart: Int { animStyle == .mark ? markLoopStart : 0 }
 
     override init() {
         super.init()
         let d = UserDefaults.standard
         if d.object(forKey: "showTimer") != nil { showTimer = d.bool(forKey: "showTimer") }
         if d.object(forKey: "iconSystem") != nil { iconSystem = d.bool(forKey: "iconSystem") }
-        if d.object(forKey: "thinkingWords") != nil { useThinkingWords = d.bool(forKey: "thinkingWords") }
+        if d.object(forKey: "showLabel") != nil { showLabel = d.bool(forKey: "showLabel") }
         if d.object(forKey: "soundThreshold") != nil { soundThreshold = d.double(forKey: "soundThreshold") }
         if let s = d.string(forKey: "animStyle"), let st = AnimStyle(rawValue: s) { animStyle = st }
+        loadMarkConfig()
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
@@ -686,15 +731,15 @@ final class StatusController: NSObject, NSMenuDelegate {
             UserDefaults.standard.set(on, forKey: "showTimer")
             self?.applyTitle()
         })
-        menu.addItem(toggleRow(title: "Thinking words", isOn: useThinkingWords) { [weak self] on in
-            self?.useThinkingWords = on
-            UserDefaults.standard.set(on, forKey: "thinkingWords")
-            self?.evaluate()   // re-render the bar label immediately with/without the rotating word
+        menu.addItem(toggleRow(title: "Show text", isOn: showLabel) { [weak self] on in
+            self?.showLabel = on
+            UserDefaults.standard.set(on, forKey: "showLabel")
+            self?.evaluate()
         })
 
         let animParent = NSMenuItem(title: "Animation", action: nil, keyEquivalent: "")
         let animSub = NSMenu()
-        for (style, name) in [(AnimStyle.web, "Claude Spark"), (AnimStyle.code, "Claude Code"), (AnimStyle.crab, "Crab Walking")] {
+        for (style, name) in [(AnimStyle.web, "Spark"), (AnimStyle.code, "Unicode"), (AnimStyle.crab, "Clawd™"), (AnimStyle.mark, "Orbit")] {
             let it = NSMenuItem(title: name, action: #selector(chooseStyle(_:)), keyEquivalent: "")
             it.target = self
             it.representedObject = style.rawValue
@@ -851,6 +896,7 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     func statusText(_ s: Session, eff: String) -> String {
+        guard showLabel else { return "" }
         switch eff {
         case "permission":       return "Awaiting permission"
         case "thinking", "tool": return workingLabel(s)
@@ -952,14 +998,16 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     func workingLabel(_ s: Session) -> String {
-        if useThinkingWords, s.state == "thinking", let w = sessionWord[s.id], !w.isEmpty { return w + "…" }
-        if !s.label.isEmpty { return s.label }
-        return s.state == "tool" ? "Working…" : "Thinking…"
+        if s.state == "thinking" {
+            let w = sessionWord[s.id] ?? thinkingWords.randomElement() ?? ""
+            if !w.isEmpty { return w + "…" }
+        }
+        return s.label.isEmpty ? "Working…" : s.label
     }
 
     // Re-pick a word each time a session ENTERS the thinking state (prompt, or a tool->thinking `post`),
     // avoiding an immediate repeat, so a tool round-trip lands a different word. Held steady while the
-    // session stays thinking. Computed regardless of the toggle so flipping it on shows instantly.
+    // session stays thinking.
     func updateThinkingWord(_ s: Session) {
         let prev = prevState[s.id] ?? ""
         guard s.state == "thinking", prev != "thinking" else { return }
@@ -1032,7 +1080,9 @@ final class StatusController: NSObject, NSMenuDelegate {
         animStyle = st
         UserDefaults.standard.set(raw, forKey: "animStyle")
         iconCache.removeAll()
+        loadMarkConfig()
         animTimer?.invalidate(); animTimer = nil // recreate at the new style's fps
+        markOutro = false
         frameIdx = 0
         evaluate()
     }
@@ -1321,22 +1371,46 @@ final class StatusController: NSObject, NSMenuDelegate {
         self.startedAt = startedAt
 
         if animate {
+            markOutro = false
             if animTimer == nil {
                 let t = Timer(timeInterval: 1.0 / fps, repeats: true) { [weak self] _ in self?.animStep() }
                 RunLoop.main.add(t, forMode: .common)
                 animTimer = t
             }
+        } else if dot {
+            markOutro = false
+            animTimer?.invalidate(); animTimer = nil
+            frameIdx = 0
+            button.image = dotIcon(color: color)
+        } else if markOutro {
+            ()
+        } else if animStyle == .mark, animTimer != nil, frameIdx >= markLoopStart {
+            markOutro = true
+            frameIdx = markBodyCount
         } else {
             animTimer?.invalidate(); animTimer = nil
             frameIdx = 0
-            button.image = dot ? dotIcon(color: color) : restingIcon(color: color)
+            button.image = restingIcon(color: color)
         }
         applyTitle()
         if button.image == nil { button.image = dot ? dotIcon(color: color) : restingIcon(color: color) }
     }
 
     func animStep() {
-        frameIdx = (frameIdx + 1) % frameCount
+        frameIdx += (animStyle == .mark ? markAdvance : 1)
+        if markOutro {
+            if frameIdx >= markSequence.count - 1 {
+                markOutro = false
+                animTimer?.invalidate(); animTimer = nil
+                frameIdx = 0
+                statusItem.button?.image = restingIcon(color: activeColor)
+                applyTitle()
+                return
+            }
+        } else if frameIdx >= frameCount {
+            let body = max(1, frameCount - loopStart)
+            frameIdx = loopStart + (frameIdx - loopStart) % body
+        }
         statusItem.button?.image = iconImage(color: activeColor, frame: frameIdx)
         applyTitle() // refresh the elapsed clock
     }
@@ -1345,7 +1419,8 @@ final class StatusController: NSObject, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         var text = activeBase
         if showTimer, startedAt > 0 {
-            text += "  " + elapsed(max(0, Int(Date().timeIntervalSince1970 - startedAt)))
+            let clock = elapsed(max(0, Int(Date().timeIntervalSince1970 - startedAt)))
+            text = text.isEmpty ? clock : text + "  " + clock
         }
         // Assigning attributedTitle re-shapes the string through CoreText and re-snapshots the
         // status item bitmap, so at animation fps an unchanged title costs a full redraw per frame
@@ -1376,16 +1451,36 @@ final class StatusController: NSObject, NSMenuDelegate {
     }
 
     func iconImage(color: NSColor?, frame: Int) -> NSImage {
-        let key = "\(animStyle.rawValue)|\(frame)|\(color == nil ? "template" : color!.description)"
+        let key = "\(animStyle.rawValue)|\(frame)|\(color == nil)"
         if let cached = iconCache[key] { return cached }
-        let img = buildIconImage(color: color, frame: frame)
+        let img = flattened(buildIconImage(color: color, frame: frame))
         iconCache[key] = img
         return img
+    }
+
+    func flattened(_ img: NSImage) -> NSImage {
+        let s = img.size
+        guard s.width > 0, s.height > 0,
+              let rep = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                         pixelsWide: Int(s.width * 2), pixelsHigh: Int(s.height * 2),
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                         isPlanar: false, colorSpaceName: .deviceRGB,
+                                         bytesPerRow: 0, bitsPerPixel: 0) else { return img }
+        rep.size = s
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        img.draw(in: NSRect(origin: .zero, size: s), from: .zero, operation: .sourceOver, fraction: 1.0)
+        NSGraphicsContext.restoreGraphicsState()
+        let out = NSImage(size: s)
+        out.addRepresentation(rep)
+        out.isTemplate = img.isTemplate
+        return out
     }
 
     func buildIconImage(color: NSColor?, frame: Int) -> NSImage {
         if animStyle == .web { return tint(frames, color: color, frame: frame) }
         if animStyle == .crab { return crabIcon(color: color, frame: frame) }
+        if animStyle == .mark { return markIcon(color: color, frame: frame) }
         let i = (frame / codeSub) % codeGlyphs.count
         let local = (CGFloat(frame % codeSub) + 0.5) / CGFloat(codeSub) // 0…1 within this glyph
         // Scale envelope per glyph: rise, hold at peak, fall, so each lands before the swap.
@@ -1450,7 +1545,56 @@ final class StatusController: NSObject, NSMenuDelegate {
     let logoSet: [NSImage] = Data(base64Encoded: claudeLogoPNG).flatMap(NSImage.init(data:)).map { [$0] } ?? []
     func restingIcon(color: NSColor?) -> NSImage {
         if animStyle == .crab { return crabIcon(color: color, frame: 0) }
+        if animStyle == .mark, let logo = logoSet.first {
+            return markLayer(logo, color: color, scale: markSparkScale)
+        }
         return tint(logoSet.isEmpty ? frames : logoSet, color: color, frame: 0)
+    }
+
+    func markLayer(_ mask: NSImage, color: NSColor?, scale: CGFloat) -> NSImage {
+        let s: CGFloat = 18, d = s * scale
+        let r = NSRect(x: (s - d) / 2, y: (s - d) / 2, width: d, height: d)
+        let scaled = NSImage(size: NSSize(width: s, height: s), flipped: false) { _ in
+            mask.draw(in: r, from: .zero, operation: .sourceOver, fraction: 1.0)
+            return true
+        }
+        let img = NSImage(size: NSSize(width: s, height: s), flipped: false) { rect in
+            if let c = color {
+                c.setFill()
+                rect.fill()
+                scaled.draw(in: rect, from: .zero, operation: .destinationIn, fraction: 1.0)
+            } else {
+                scaled.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            }
+            return true
+        }
+        img.isTemplate = (color == nil)
+        return img
+    }
+
+    func markIcon(color: NSColor?, frame: Int) -> NSImage {
+        guard frame >= 0, frame < markSequence.count else { return restingIcon(color: color) }
+        let step = markSequence[frame]
+        guard let strip = markFrames[step.strip], step.frame < strip.count else {
+            return NSImage(size: NSSize(width: 18, height: 18))
+        }
+        var sparkAlpha: CGFloat = 0
+        if step.strip == "en110", step.frame < markFadeFrames {
+            sparkAlpha = 1 - (CGFloat(step.frame) + 1) / CGFloat(markFadeFrames)
+        } else if step.strip == "ex40" {
+            let tail = strip.count - step.frame - 1
+            if tail < markFadeFrames { sparkAlpha = 1 - CGFloat(tail) / CGFloat(markFadeFrames) }
+        }
+        let dots = markLayer(strip[step.frame], color: color, scale: markDotScale)
+        guard sparkAlpha > 0, let logo = logoSet.first else { return dots }
+        let spark = markLayer(logo, color: color, scale: markSparkScale)
+        let img = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
+            dots.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: 1 - sparkAlpha)
+            spark.draw(at: .zero, from: .zero, operation: .sourceOver, fraction: sparkAlpha)
+            return true
+        }
+        img.isTemplate = (color == nil)
+        return img
     }
 
     // nil color (System) => adaptive shaded template (see adaptiveCrabFrame in CrabRender.swift);
