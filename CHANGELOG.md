@@ -3,6 +3,18 @@
 All notable changes to Claude Status Bar are documented here. This project follows
 [Semantic Versioning](https://semver.org/).
 
+## [0.4.5] - 2026-09-18
+
+### Added
+- **Orbit, Claude's new thinking dots animation style.** Three dots that drift together, merge, orbit each other and settle back out.
+- **A toggle to hide the status text.** "Show text" turns the menu bar label off for an icon-only menu bar. On by default. Suggested and first implemented by [@felixradtke](https://github.com/felixradtke) ([#62](https://github.com/m1ckc3s/claude-status-bar/pull/62)).
+
+### Changed
+- **Updated names for the animation styles.** Claude Spark is now **Spark**, Claude Code is now **Unicode**, and Crab Walking is now **Clawd™**. Your saved choice carries over untouched.
+
+### Removed
+- **The plain `Thinking…` option.** The old "Thinking words" toggle fell back to a plain `Thinking…` when switched off. The status text is now either the rotating words or nothing at all.
+
 ## [0.4.4] - 2026-08-05
 
 ### Changed
@@ -174,6 +186,7 @@ All notable changes to Claude Status Bar are documented here. This project follo
 - Signed and notarized DMG so it opens without a Gatekeeper warning.
 - Claude Code plugin marketplace manifest for the plugin install path.
 
+[0.4.5]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.5
 [0.4.4]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.4
 [0.4.3]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.3
 [0.4.2]: https://github.com/m1ckc3s/claude-status-bar/releases/tag/v0.4.2
