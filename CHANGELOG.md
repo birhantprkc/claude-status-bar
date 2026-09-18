@@ -10,6 +10,7 @@ All notable changes to Claude Status Bar are documented here. This project follo
 - **A toggle to hide the status text.** "Show text" turns the menu bar label off for an icon-only menu bar. On by default. Suggested and first implemented by [@felixradtke](https://github.com/felixradtke) ([#62](https://github.com/m1ckc3s/claude-status-bar/pull/62)).
 
 ### Changed
+- **New app icon.** The Orbit dots replace the pixel Clawd.
 - **Updated names for the animation styles.** Claude Spark is now **Spark**, Claude Code is now **Unicode**, and Crab Walking is now **Clawd™**. Your saved choice carries over untouched.
 
 ### Removed
